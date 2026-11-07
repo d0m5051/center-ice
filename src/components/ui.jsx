@@ -61,7 +61,13 @@ export const Side = ({ r, label, cls }) => (
   </div>
 );
 
-export const Loading = ({ children = "Crunching numbers…" }) => <p className="note loading" role="status">{children}</p>;
+/* Loading line for a worker job. When the job failed, shows the error with a Retry button instead of loading forever. */
+export function Loading({ children = "Crunching numbers…", job }) {
+  const { jobErr, retryJobs } = useApp();
+  const err = job ? jobErr[job] : jobErr.odds || jobErr.lineup;
+  if (err) return <p className="note job-err" role="alert">{err} <button className="btn ghost" type="button" onClick={retryJobs}>Retry</button></p>;
+  return <p className="note loading" role="status">{children}</p>;
+}
 
 export const BOLT = <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6z" /></svg>;
 

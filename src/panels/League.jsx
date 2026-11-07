@@ -73,8 +73,8 @@ function Odds() {
   const { ME, ids, T, DATA } = M;
   const seedHead = <div className="sec-head"><h3>Your final-seed distribution</h3><span className="note">Share of simulated seasons ending at each seed.</span></div>;
   if (!odds) return <>
-    <div className="sec"><div className="sec-head"><h2>Playoff odds</h2><span className="note">Simulating {S.sims.toLocaleString()} seasons…</span></div><Loading>Running the playoff simulation in the background.</Loading></div>
-    <div className="sec">{seedHead}<div className="card"><Loading /></div></div>
+    <div className="sec"><div className="sec-head"><h2>Playoff odds</h2><span className="note">Simulating {S.sims.toLocaleString()} seasons…</span></div><Loading job="odds">Running the playoff simulation in the background.</Loading></div>
+    <div className="sec">{seedHead}<div className="card"><Loading job="odds" /></div></div>
   </>;
   const o = odds[ME], s = o.seeds, best = s.indexOf(Math.max(...s.slice(1)));
   const rivals = ids.filter((i) => i !== ME).sort((a, b) => Math.abs(odds[a].make - o.make) - Math.abs(odds[b].make - o.make)).slice(0, 2);

@@ -7,7 +7,7 @@ import { f1 } from "../lib/format.js";
 import { etKey, keyLabel, shortDay, timeET } from "../lib/calendar.js";
 import { Modal, ModalHead } from "../components/Modal.jsx";
 import { TABS, Icon } from "../components/Dock.jsx";
-import { InjPill, Pill, ConfPill, Tags, RecBlock, Side } from "../components/ui.jsx";
+import { InjPill, Pill, ConfPill, Tags, RecBlock, Side, Loading } from "../components/ui.jsx";
 import { GainLine } from "../panels/Wire.jsx";
 import { startsInfo } from "../panels/Roster.jsx";
 
@@ -26,7 +26,7 @@ function PlayerOv({ id }) {
   if (w && w.gain > 0.05) fit = <><p><b>Why he fits your team:</b> adding him and dropping {w.drop[P.nm]} is worth about +{w.gain.toFixed(1)} projected pts over the next 7 days.</p><RecBlock w={w} />{M.wireTags(w).length > 0 && <div><Tags w={w} /></div>}</>;
   else if (w) fit = <p className="note">He would not improve your best lineup over the next 7 days.</p>;
   else if (tr) fit = <p><b>Trade target:</b> {T[tr.o].name} would send him for {tr.x[P.nm]}. You {tr.me >= 0 ? "+" : ""}{tr.me.toFixed(1)}, them {tr.them >= 0 ? "+" : ""}{tr.them.toFixed(1)} projected pts.</p>;
-  else if (mine) fit = reps.length ? <p><b>Replacement options:</b> {reps.map((x) => `${x.f[P.nm]} (+${x.gain.toFixed(1)})`).join(", ")} would improve your lineup over him.</p> : wire ? <p className="note">No free agent improves your lineup over him right now.</p> : <p className="note">Scoring free agents…</p>;
+  else if (mine) fit = reps.length ? <p><b>Replacement options:</b> {reps.map((x) => `${x.f[P.nm]} (+${x.gain.toFixed(1)})`).join(", ")} would improve your lineup over him.</p> : wire ? <p className="note">No free agent improves your lineup over him right now.</p> : <Loading job="lineup">Scoring free agents…</Loading>;
   const g7 = SCHED_OK ? M.PERIOD_DAYS.filter((d) => M.playsOn(r[P.pro], d)).map((d) => { const g = M.gameOn(r[P.pro], d); return <span className="tchip" key={d}>{shortDay(d)} <b>{g[1] === "@" ? "@" : "vs"} {g[2]}</b></span>; }) : null;
 
   return (
@@ -122,6 +122,7 @@ function UpOv() {
   return (
     <Modal label="Upgrades available" onClose={closeModal}>
       <ModalHead title="Upgrades available" onClose={closeModal} sub={wire ? `${ups.length} of ${wire.length} free agents improve your best lineup. Each card shows who to add, who to drop, and the projected gain over the next 7 days if you set your lineup every day. You get 1 add per matchup.` : "Scoring free agents…"} />
+      {!wire && <Loading job="lineup">Scoring free agents…</Loading>}
       {wire && (ups.length ? ups.map((w) => (
         <div className="up" key={w.f[P.id]}>
           <div className="up-row"><Side r={w.f} label="Add" cls="add" /><span className="swap">⇄</span><Side r={w.drop} label="Drop" cls="drp r" /></div>

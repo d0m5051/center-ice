@@ -71,3 +71,15 @@ export async function migrateFromLocalStorage() {
 export async function requestPersistence() {
   try { if (navigator.storage && navigator.storage.persist && !(await navigator.storage.persisted())) await navigator.storage.persist(); } catch {}
 }
+
+/* Cross-tab change notices for IndexedDB keys. A tab that writes a key announces it; other open tabs re-read it, so a
+   tab never keeps editing a stale copy and overwrites another tab's change (docs/STATE_MACHINES.md, "Persistence"). */
+let bc;
+const channel = () => (bc !== undefined ? bc : (bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("center-ice") : null));
+export const announce = (key) => { try { const c = channel(); c && c.postMessage({ key }); } catch {} };
+export function subscribe(fn) {
+  const c = channel(); if (!c) return () => {};
+  const h = (e) => { if (e.data && typeof e.data.key === "string") fn(e.data.key); };
+  c.addEventListener("message", h);
+  return () => c.removeEventListener("message", h);
+}

@@ -192,10 +192,11 @@ function Refs() {
     const cut = t.length > REF_ITEM_MAX;
     const rec = { kind: mode === "link" ? (isVideo(u) ? "video" : "article") : "text", title: ti, url: mode === "link" ? u : "", text: t.slice(0, REF_ITEM_MAX) };
     const old = edit && refs.find((r) => r.id === edit);
-    const next = old
-      ? refs.map((r) => (r !== old ? r : { ...r, ...rec, ...(r.kind === "file" ? { kind: "file", url: r.url } : {}), ...(rec.text ? { on: true } : {}) }))
-      : [{ id: refId(), on: true, added: new Date().toISOString(), ...rec }, ...refs];
-    save(next);
+    /* Functional updates keyed by id: the list may have changed (another tab, a file still being read) since render. */
+    const fresh = { id: refId(), on: true, added: new Date().toISOString(), ...rec };
+    save((cur) => (old
+      ? cur.map((r) => (r.id !== old.id ? r : { ...r, ...rec, ...(r.kind === "file" ? { kind: "file", url: r.url } : {}), ...(rec.text ? { on: true } : {}) }))
+      : [fresh, ...cur]));
     setMsg({ cls: "ok", text: `${old ? "Updated" : "Added"} "${ti}".${cut ? ` Trimmed to ${REF_ITEM_MAX.toLocaleString()} characters.` : ""}${rec.text ? " The coach will use it in your next new chat." : " Add its transcript or text with Edit so the coach can use it."}` });
     reset();
   };
@@ -206,7 +207,7 @@ function Refs() {
       try { const t = await readRefFile(f); add.push({ id: refId(), kind: "file", title: f.name.replace(/\.[^.]+$/, ""), file: f.name, url: "", text: t.slice(0, REF_ITEM_MAX), on: true, added: new Date().toISOString() }); done.push(f.name + (t.length > REF_ITEM_MAX ? " (trimmed)" : "")); }
       catch (e) { bad.push(`${f.name}: ${e.message || "couldn't be read"}`); }
     }
-    if (add.length) await save([...add.reverse(), ...refs]);
+    if (add.length) await save((cur) => [...add.reverse(), ...cur]);
     setMsg({ cls: bad.length ? "err" : "ok", text: [done.length ? `Added ${done.join(", ")}.` : "", bad.length ? `Not added: ${bad.join("; ")}.` : ""].filter(Boolean).join(" ") });
   };
   const startEdit = (r) => {
@@ -244,9 +245,9 @@ function Refs() {
               <div className="ref-meta">{!t ? <Pill kind="warn">No text yet</Pill> : r.on ? <Pill kind="good">In coach</Pill> : <Pill>Off</Pill>}<span>{t ? t.length.toLocaleString() + " characters" : "Paste its transcript or takeaways with Edit"}</span>{r.file && <span>{r.file}</span>}{d && <span>Added {d}</span>}</div>
               {t && <details><summary>Preview</summary><p className="ref-prev">{t.slice(0, 1200)}{t.length > 1200 ? "…" : ""}</p></details>}
               <div className="ref-act">
-                <label><input type="checkbox" className="sw" checked={!!r.on} aria-label="Use in coach" onChange={(e) => save(refs.map((x) => (x === r ? { ...x, on: e.target.checked } : x)))} />Use in coach</label>
+                <label><input type="checkbox" className="sw" checked={!!r.on} aria-label="Use in coach" onChange={(e) => { const on = e.target.checked; save((cur) => cur.map((x) => (x.id === r.id ? { ...x, on } : x))); }} />Use in coach</label>
                 <button className="btn ghost" type="button" onClick={() => startEdit(r)}>Edit</button>
-                <ArmBtn label="Remove" armed="Tap again to remove" onConfirm={() => { if (edit === r.id) reset(); save(refs.filter((x) => x !== r)); }} />
+                <ArmBtn label="Remove" armed="Tap again to remove" onConfirm={() => { if (edit === r.id) reset(); save((cur) => cur.filter((x) => x.id !== r.id)); }} />
               </div>
             </div>
           );
@@ -263,34 +264,35 @@ async function copyOr(text, box, fallback = "Code is in the box below") {
 }
 
 function Data() {
-  const { M, commitData, revertData, syncMsg, setSyncMsg } = useApp();
+  const { M, runSync, syncBusy: busy, revertData, syncMsg, setSyncMsg } = useApp();
   const D = M.DATA, when = whenET(D.snapshot), synced = D.source === "sync", G = M.GAMES;
-  const [busy, setBusy] = useState(false), [panel, setPanel] = useState(false), [why, setWhy] = useState("");
+  const [panel, setPanel] = useState(false), [why, setWhy] = useState("");
   const [paste, setPaste] = useState(""), [full, setFull] = useState(null), [stored, setStored] = useState(false);
   const taRef = useRef(null), box = { ref: taRef, set: (t) => { setPaste(t); setFull(null); } };
   const msg = (cls, text) => setSyncMsg(text ? { cls, text } : null);
   useEffect(() => { idbGet("ci-data").then((d) => setStored(!!d)); }, [D]);
 
-  const commit = async (objs) => { await commitData(parseEspn(objs, M.DATA)); setPanel(false); };
+  /* The sync itself runs in App (one at a time, survives leaving this section); this only drives the panel. */
+  const sync = async (getObjs) => { if (await runSync(getObjs, parseEspn)) setPanel(false); };
   const syncNow = async () => {
-    setBusy(true); msg();
-    try { await commit(await tryDirect()); }
+    msg();
+    try { await sync(tryDirect); }
     catch (err) {
       setPanel(true);
       const blocked = err && (err.name === "TypeError" || err.name === "AbortError");
       setWhy(blocked ? "ESPN doesn't let other sites fetch its data directly, so use the bookmark below. After the one-time setup it's: tap it on ESPN, come back, Paste & import." : `Direct sync failed (${err.message}). Do it in two taps instead:`);
-    } finally { setBusy(false); }
+    }
   };
   const pasteImport = async () => {
     msg(); let txt = "";
     try { txt = await navigator.clipboard.readText(); } catch {}
     if (!txt || txt.startsWith("javascript:") || txt.startsWith("// ==UserScript")) { taRef.current?.focus(); msg("err", "Couldn't read the clipboard here. Paste into the box below, then tap Import."); return; }
-    setBusy(true); try { await commit(splitJson(txt)); } catch (err) { msg("err", err.message || String(err)); } finally { setBusy(false); }
+    try { await sync(async () => splitJson(txt)); } catch (err) { msg("err", err.message || String(err)); }
   };
   const importBox = async () => {
-    setBusy(true); msg();
-    try { const objs = splitJson(full || paste); if (!objs.length) throw new Error("Paste the league JSON or choose a file first."); await commit(objs); }
-    catch (err) { msg("err", err.message || String(err)); } finally { setBusy(false); }
+    msg();
+    try { await sync(async () => { const objs = splitJson(full || paste); if (!objs.length) throw new Error("Paste the league JSON or choose a file first."); return objs; }); }
+    catch (err) { msg("err", err.message || String(err)); }
   };
   const onFiles = async (e) => {
     const fs = [...e.target.files]; if (!fs.length) return;

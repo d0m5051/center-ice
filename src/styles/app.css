@@ -479,6 +479,7 @@
   #wireQ { font: inherit; color: var(--ink); background: var(--sheet); border: 1px solid var(--g-edge); border-radius: 99px; padding: 8px 14px; min-width: 0; width: 12em; max-width: 100%; }
   .inline-ctl { display: flex; gap: 8px; align-items: center; }
   .loading { animation: pulse 1.6s ease-in-out infinite; }
+  .job-err { color: var(--bad); display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: none; }
 
   /* Clickable tiles */
   .tile-btn { position: relative; text-align: left; font: inherit; color: inherit; cursor: pointer; width: 100%; padding-right: 30px; }

@@ -80,7 +80,7 @@ export function Wire() {
         <input id="wireQ" type="search" placeholder="Search players" aria-label="Search players" autoComplete="off" value={q} onChange={(e) => { setQ(e.target.value); setLimit(100); }} />
       </div>
       <p className="note">{src} Each one is tested against your roster: the gain is how much your best lineup improves in projected points per week if you add him and drop the player listed. You get 1 add per matchup, so spend it on the biggest number. Waiver players clear Sunday at 8:00.</p>
-      {!wire ? <Loading>Scoring free agents against your roster…</Loading> : <>
+      {!wire ? <Loading job="lineup">Scoring free agents against your roster…</Loading> : <>
         <div className="tiles">
           {top && <button type="button" className="tile tile-btn" onClick={() => openModal("up")}><span className="eyebrow">Best add</span><span className="big big-name">{top.f[P.nm]}</span><span className="sub">+{top.gain.toFixed(1)} pts/wk, drop {top.drop[P.nm]}</span></button>}
           <button type="button" className="tile tile-btn" onClick={() => openModal("up")}><span className="eyebrow">Upgrades available</span><span className="big num">{ups}</span><span className="sub">of {wire.length} improve your lineup</span></button>
