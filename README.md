@@ -10,8 +10,10 @@ npm run build     # production build into dist/
 npx vite preview  # serve dist/
 ```
 
-The coach calls `/api/coach`, a Netlify function (`netlify/functions/coach.mts`) that streams answers through the
-Netlify AI Gateway. It only works on Netlify or under `netlify dev`.
+The coach calls `/api/coach`, a Netlify function (`netlify/functions/coach.mts`) that streams answers from Claude
+(`claude-opus-5-5`, medium effort) with the Anthropic SDK. Set `ANTHROPIC_API_KEY` in Netlify under Site configuration >
+Environment variables. If a safety classifier declines a question, the API retries it on Anthropic's recommended fallback
+model (`fallbacks: "default"`). The function only runs on Netlify or under `netlify dev`.
 
 ## Architecture
 

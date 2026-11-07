@@ -1,77 +1,72 @@
-// Bench coach: relays the conversation to Grok through Netlify AI Gateway and streams the reply back as plain text.
-const MODEL = "x-ai/grok-4.7";
+// Bench coach: relays the conversation to Claude and streams the reply back to the page as plain text.
+// Credentials come from the environment: set ANTHROPIC_API_KEY in Netlify (Site configuration > Environment variables).
+import Anthropic from "@anthropic-ai/sdk";
 
-type Msg = { role: "user" | "assistant"; content: string };
+const MODEL = "claude-opus-5-5";
+const client = new Anthropic();
 
 export default async (req: Request) => {
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
 
-  let messages: Msg[];
+  let messages: Anthropic.Beta.BetaMessageParam[];
   try {
     const body = await req.json();
     messages = (Array.isArray(body?.messages) ? body.messages : [])
-      .filter((m: any) => (m?.role === "user" || m?.role === "assistant") && typeof m?.content === "string")
+      .filter((m: any) => (m?.role === "user" || m?.role === "assistant") && typeof m?.content === "string" && m.content.trim())
       .map((m: any) => ({ role: m.role, content: m.content }));
   } catch {
     return Response.json({ error: "Bad request" }, { status: 400 });
   }
-  if (!messages.length) return Response.json({ error: "No question" }, { status: 400 });
+  if (!messages.length || messages[messages.length - 1].role !== "user") return Response.json({ error: "No question" }, { status: 400 });
 
-  const gateway = (process.env.NETLIFY_AI_GATEWAY_URL || "").replace(/\/$/, "");
-  const upstream = await fetch(`${gateway}/v1/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.NETLIFY_AI_GATEWAY_KEY}`,
+  const stream = client.beta.messages.stream(
+    {
+      model: MODEL,
+      max_tokens: 16000,
+      // Chat-style answers: medium effort keeps replies quick. Thinking is always on for this model.
+      output_config: { effort: "medium" },
+      // If a safety classifier declines, the API re-runs the request on Anthropic's recommended fallback model.
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+      messages,
     },
-    body: JSON.stringify({ model: MODEL, messages, stream: true, max_tokens: 2000 }),
-    signal: req.signal,
-  });
+    { signal: req.signal },
+  );
 
-  if (!upstream.ok || !upstream.body) {
-    const detail = await upstream.text().catch(() => "");
-    console.error("coach upstream error", upstream.status, detail.slice(0, 500));
-    return Response.json(
-      { error: upstream.status === 429 ? "rate_limited" : "upstream_error" },
-      { status: upstream.status === 429 ? 429 : 502 },
-    );
+  // Wait for the first event so connection, auth and rate-limit errors become a proper status code for the page.
+  const iter = stream[Symbol.asyncIterator]();
+  let first: IteratorResult<Anthropic.Beta.BetaRawMessageStreamEvent>;
+  try {
+    first = await iter.next();
+  } catch (e) {
+    console.error("coach upstream error", e);
+    const rate = e instanceof Anthropic.RateLimitError;
+    return Response.json({ error: rate ? "rate_limited" : "upstream_error" }, { status: rate ? 429 : 502 });
   }
 
   const enc = new TextEncoder();
-  const dec = new TextDecoder();
-  const reader = upstream.body.getReader();
-  const stream = new ReadableStream({
+  const body = new ReadableStream<Uint8Array>({
     async start(controller) {
-      let buf = "";
+      const emit = (ev: Anthropic.Beta.BetaRawMessageStreamEvent) => {
+        if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") controller.enqueue(enc.encode(ev.delta.text));
+      };
       try {
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buf += dec.decode(value, { stream: true });
-          let i;
-          while ((i = buf.indexOf("\n")) >= 0) {
-            const line = buf.slice(0, i).trim();
-            buf = buf.slice(i + 1);
-            if (!line.startsWith("data:")) continue;
-            const data = line.slice(5).trim();
-            if (data === "[DONE]") continue;
-            try {
-              const text = JSON.parse(data)?.choices?.[0]?.delta?.content;
-              if (text) controller.enqueue(enc.encode(text));
-            } catch {}
-          }
-        }
+        if (!first.done) emit(first.value);
+        for (let r = await iter.next(); !r.done; r = await iter.next()) emit(r.value);
+        const final = await stream.finalMessage();
+        if (final.stop_reason === "refusal") controller.enqueue(enc.encode("\n\nThe coach declined to answer that one. Try rephrasing the question."));
+        else if (final.stop_reason === "max_tokens") controller.enqueue(enc.encode("\n\n(Answer cut off at the length limit.)"));
       } catch (e) {
-        console.error("coach stream error", e);
+        if (!req.signal.aborted) console.error("coach stream error", e);
       }
       controller.close();
     },
     cancel() {
-      reader.cancel().catch(() => {});
+      stream.abort();
     },
   });
 
-  return new Response(stream, {
+  return new Response(body, {
     headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
   });
 };
