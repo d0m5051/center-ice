@@ -1,7 +1,9 @@
 /* Bench coach: streams answers from /api/coach with the full league context on the first turn. */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createCoachSession } from "../lib/coachSession.js";
 import { useApp } from "../ctx.js";
 import { nowStr, whenET } from "../lib/calendar.js";
+import { Loading } from "../components/ui.jsx";
 import { context, systemPrompt, focusBlock, harvestTrades, stripTrades, streamCoach } from "../lib/coach.js";
 
 export function Coach() {
@@ -9,46 +11,35 @@ export function Coach() {
   const { M, S, odds, wire, trades, tmode, refs, coachReq, setCoachReq, setCtrades, ctrades, setDealsDot, show, goSync } = app;
   const { T, ME, ranked, DATA, CW } = M;
   const [focus, setFocus] = useState(() => (S.coachTeam !== "me" && T[S.coachTeam] ? +S.coachTeam : ME));
-  const [log, setLog] = useState([]);
   const [q, setQ] = useState("");
-  const [busy, setBusy] = useState(false);
-  const hist = useRef([]), ctrl = useRef(null), logEl = useRef(null), ctRef = useRef(ctrades);
+  const [{ log, busy }, setView] = useState({ log: [], busy: false });
+  const session = useMemo(() => createCoachSession({ stream: streamCoach, onChange: setView }), []);
+  const logEl = useRef(null), ctRef = useRef(ctrades);
   ctRef.current = ctrades;
   const ready = !!(odds && wire && trades);
 
   useEffect(() => { setFocus(S.coachTeam !== "me" && T[S.coachTeam] ? +S.coachTeam : ME); }, [S.coachTeam]); // eslint-disable-line react-hooks/exhaustive-deps
-  /* A new snapshot means the context the coach saw on turn one is stale: start over. */
-  useEffect(() => { hist.current = []; }, [M]);
-  useEffect(() => () => ctrl.current && ctrl.current.abort(), []);
+  /* A new snapshot means the context the coach saw on turn one is stale: the next question starts over. */
+  const firstM = useRef(true);
+  useEffect(() => { if (firstM.current) { firstM.current = false; return; } session.contextChanged(); }, [M, session]);
+  useEffect(() => () => session.clear(), [session]);
   useEffect(() => { const el = logEl.current; if (el && log.length) el.lastElementChild?.scrollIntoView({ block: "nearest" }); }, [log.length]);
 
-  const patchLast = (p) => setLog((l) => { const c = l.slice(); c[c.length - 1] = { ...c[c.length - 1], ...p }; return c; });
-
-  const ask = useCallback(async (question, fid = focus) => {
-    if (busy || !question.trim() || !ready) return false;
-    setBusy(true);
-    setLog((l) => [...l, { cls: "u", text: (fid !== ME ? "[" + T[fid].ab + "] " : "") + question }, { cls: "a", text: "Thinking…" }]);
-    const first = hist.current.length ? "" : systemPrompt(M, S, refs) + context(M, { odds, wire, trades, S, tmode }) + "\n\n";
-    const msgs = [...hist.current, { role: "user", content: first + `Right now it is ${nowStr()}.\n` + focusBlock(M, fid, odds) + "\n\nQUESTION: " + question }];
-    const ac = new AbortController(); ctrl.current = ac;
-    try {
-      const text = await streamCoach(msgs, { signal: ac.signal, onText: (t) => patchLast({ text: stripTrades(t) }) });
-      hist.current = [...msgs, { role: "assistant", content: text }];
-      let n = 0;
-      if (fid === ME) {
+  const ask = useCallback((question, fid = focus) => {
+    if (busy || !question.trim() || !ready) return Promise.resolve(false);
+    return session.ask({
+      label: (fid !== ME ? "[" + T[fid].ab + "] " : "") + question,
+      build: (first, hist) => [...hist, { role: "user", content: (first ? systemPrompt(M, S, refs) + context(M, { odds, wire, trades, S, tmode }) + "\n\n" : "") + `Right now it is ${nowStr()}.\n` + focusBlock(M, fid, odds) + "\n\nQUESTION: " + question }],
+      strip: stripTrades,
+      after: (text) => {
+        if (fid !== ME) return {};
         const found = harvestTrades(M, text, ctRef.current);
-        n = found.length;
-        if (n) { setCtrades((cur) => [...found, ...cur].slice(0, 12)); setDealsDot(true); }
-      }
-      patchLast({ text: stripTrades(text), trades: n });
-    } catch (e) {
-      if (ac.signal.aborted && ctrl.current !== ac) return true; /* cleared: the log is already gone */
-      patchLast({ cls: "err", text: e && e.code === "rate_limited" ? "Too many questions in a row. Wait a minute and ask again." : e && e.name === "AbortError" ? "Stopped." : "The coach couldn't answer that. Try again." });
-    } finally {
-      if (ctrl.current === ac) { ctrl.current = null; setBusy(false); }
-    }
-    return true;
-  }, [busy, ready, focus, M, S, refs, odds, wire, trades, tmode, T, ME, setCtrades, setDealsDot]); // eslint-disable-line react-hooks/exhaustive-deps
+        if (found.length) { setCtrades((cur) => [...found, ...cur].slice(0, 12)); setDealsDot(true); }
+        return { trades: found.length };
+      },
+      errorText: (e) => (e && e.code === "rate_limited" ? "Too many questions in a row. Wait a minute and ask again." : e && e.name === "AbortError" ? "Stopped." : "The coach couldn't answer that. Try again."),
+    });
+  }, [busy, ready, focus, M, S, refs, odds, wire, trades, tmode, T, ME, setCtrades, setDealsDot, session]);
 
   /* Requests from other tabs ("Ask the coach" on a trade card): switch focus to the user's team, then ask. */
   useEffect(() => {
@@ -58,7 +49,7 @@ export function Coach() {
     ask(coachReq.q, ME).then(() => setCoachReq(null));
   }, [coachReq, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const clear = () => { const c = ctrl.current; ctrl.current = null; if (c) c.abort(); setBusy(false); hist.current = []; setLog([]); };
+  const clear = () => session.clear();
   const submit = (e) => { e.preventDefault(); const v = q; setQ(""); ask(v); };
 
   const opp = M.oppOf(CW, ME).opp, nextOpp = CW < DATA.regWeeks ? M.oppOf(CW + 1, ME).opp : null;
@@ -88,7 +79,7 @@ export function Coach() {
           </div>
         ))}
       </div>
-      {!ready && <p className="note loading" role="status">Loading odds, wire and trades for the coach…</p>}
+      {!ready && <Loading>Loading odds, wire and trades for the coach…</Loading>}
       <form className="ask" onSubmit={submit}>
         <label htmlFor="q" className="eyebrow" hidden>Question</label>
         <textarea id="q" rows={2} placeholder="Ask the coach" value={q} onChange={(e) => setQ(e.target.value)}

@@ -51,7 +51,7 @@ function TopMoves() {
           <button key={a.tag} type="button" className="act" onClick={() => (a.go === "deals" ? show("deals") : go(a.go))}>
             <span className="eyebrow">{a.tag}</span><b>{a.t}</b><span className="note wide">{a.d}</span><ConfPill c={a.c} />
           </button>
-        )) : !wire ? <Loading>Scoring free agents and trades…</Loading> : <p className="note">Nothing to do right now. Lineup, wire and trades have no moves worth making.</p>}
+        )) : !wire ? <Loading job="lineup">Scoring free agents and trades…</Loading> : <p className="note">Nothing to do right now. Lineup, wire and trades have no moves worth making.</p>}
       </div>
     </div>
   );

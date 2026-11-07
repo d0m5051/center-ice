@@ -5,7 +5,7 @@ import { f1 } from "../lib/format.js";
 import { keyLabel } from "../lib/calendar.js";
 import { lsGet, lsSet } from "../lib/storage.js";
 import { useWide } from "../hooks/useMedia.js";
-import { InjPill, GameDot, Slot, Pill, Tile, StartPill } from "../components/ui.jsx";
+import { InjPill, GameDot, Slot, Pill, Tile, StartPill, Loading } from "../components/ui.jsx";
 import { OptBar } from "./Week.jsx";
 
 const ORDER = { F: 0, C: 0, LW: 0, RW: 0, D: 1, G: 2, UTIL: 3, BN: 4, IR: 5 };
@@ -35,7 +35,7 @@ function Detail({ r }) {
       <p className="statline">{statline(r)}</p>
       {mine && <>
         <p className="eyebrow sub-head">Free-agent replacements</p>
-        {!wire ? <p className="note">Scoring free agents…</p> : reps.length ? <div className="plist">{reps.map((w) => <div className="pl" key={w.f[P.id]}><span className="pos">{w.f[P.pos]}</span><span className="nm">{w.f[P.nm]}<small>{w.f[P.pro]} · {pv(w.f).toFixed(2)}/gm</small></span><span className="num gain-good">+{w.gain.toFixed(1)}</span><span /></div>)}</div> : <p className="note">No free agent improves your lineup over him right now.</p>}
+        {!wire ? <Loading job="lineup">Scoring free agents…</Loading> : reps.length ? <div className="plist">{reps.map((w) => <div className="pl" key={w.f[P.id]}><span className="pos">{w.f[P.pos]}</span><span className="nm">{w.f[P.nm]}<small>{w.f[P.pro]} · {pv(w.f).toFixed(2)}/gm</small></span><span className="num gain-good">+{w.gain.toFixed(1)}</span><span /></div>)}</div> : <p className="note">No free agent improves your lineup over him right now.</p>}
       </>}
       <button className="btn ghost open-pl" type="button" onClick={() => openPlayer(r[P.id])}>Full detail and compare</button>
     </div>

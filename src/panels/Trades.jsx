@@ -68,7 +68,7 @@ export function Trades() {
         </div>
         <p className="note">{note}</p>
         <div className="trades">
-          {!trades ? <Loading>Searching trades…</Loading> : trades.length ? trades.map((t) => {
+          {!trades ? <Loading job="lineup">Searching trades…</Loading> : trades.length ? trades.map((t) => {
             const r = M.tradeRec(t, tmode);
             return (
               <div className="trade" key={`${t.x[P.id]}-${t.y[P.id]}`}>
